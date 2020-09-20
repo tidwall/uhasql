@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,15 +17,18 @@ import (
 )
 
 // #cgo LDFLAGS: -Lsqlite -lsqlite
-// #include "uhaha.c"
+// #include "sqlite/sqlite.h"
+// #include <stdint.h>
+// #include <stdlib.h>
 // extern int64_t uhaha_seed;
 // extern int64_t uhaha_ts;
-// // hello jelloasfasdfasdf
 import "C"
 
 var dbmu sync.Mutex
-var disableCheckpoints bool
 var dbPath string
+var db *sqlDatabase
+
+var errTooMuchInput = errors.New("too much input")
 
 type client struct {
 	tx   bool
@@ -49,9 +51,7 @@ func main() {
 		os.RemoveAll(filepath.Join(dir, "db"))
 		os.Mkdir(filepath.Join(dir, "db"), 0777)
 		dbPath = filepath.Join(dir, "db", "sqlite.db")
-		cs := C.CString(dbPath)
-		C.db_open(cs)
-		C.free(unsafe.Pointer(cs))
+		db = must(openSQLDatabase(dbPath)).(*sqlDatabase)
 	}
 	conf.Tick = tick
 	conf.Snapshot = snapshot
@@ -67,21 +67,9 @@ func main() {
 		c := context.(*client)
 		c.sv.release()
 	}
-
-	stmts := []string{
-		"ALTER", "ANALYZE", "ATTACH", "CREATE", "DELETE", "DETACH", "DROP",
-		"EXPLAIN", "INDEXED", "INSERT", "ON", "REINDEX", "REPLACE", "SELECT",
-		"UPDATE", "UPSERT", "WITH",
-	}
-	for _, stmt := range stmts {
-		conf.AddPassiveCommand(stmt, cmdSQL)
-	}
-	conf.AddPassiveCommand("BEGIN", cmdBEGIN)
-	conf.AddPassiveCommand("END", cmdEND)
-	conf.AddPassiveCommand("COMMIT", cmdEND)
-	conf.AddPassiveCommand("ROLLBACK", cmdEND)
 	conf.AddWriteCommand("$EXEC", cmdEXEC)
 	conf.AddReadCommand("$QUERY", cmdQUERY)
+	conf.AddCatchallCommand(cmdANY)
 	uhaha.Main(conf)
 }
 
@@ -90,12 +78,33 @@ func tick(m uhaha.Machine) {
 	uhaha.ReadRawMachineInfo(m, &info)
 	C.uhaha_seed = C.int64_t(info.Seed)
 	C.uhaha_ts = C.int64_t(info.TS)
-	if !disableCheckpoints {
-		C.db_checkpoint()
+}
+
+func cmdANY(m uhaha.Machine, args []string) (interface{}, error) {
+	// PASSIVE
+	sql := strings.TrimSpace(strings.Join(args, " "))
+	keyword := sqlKeyword(sql)
+	remain := strings.TrimSpace(sql[len(keyword):])
+	if len(remain) == 0 || remain == ";" {
+		args = []string{keyword}
+	} else {
+		args = []string{keyword, remain}
 	}
+	switch keyword {
+	case "alter", "analyze", "attach", "create", "delete", "detach", "drop",
+		"explain", "indexed", "insert", "on", "reindex", "replace", "select",
+		"update", "upsert", "with":
+		return cmdSQL(m, args)
+	case "begin":
+		return cmdBEGIN(m, args)
+	case "end", "commit", "rollback":
+		return cmdEND(m, args)
+	}
+	return nil, uhaha.ErrUnknownCommand
 }
 
 func cmdSQL(m uhaha.Machine, args []string) (interface{}, error) {
+	// PASSIVE
 	c := m.Context().(*client)
 	sql := strings.Join(args, " ")
 	ro, err := c.sv.validate(sql)
@@ -114,30 +123,13 @@ func cmdSQL(m uhaha.Machine, args []string) (interface{}, error) {
 	} else {
 		args = []string{"$EXEC", string(data)}
 	}
-	fmt.Printf("%v\n", args)
 	return uhaha.FilterArgs(args), nil
 }
 
-func cmdEXEC(m uhaha.Machine, args []string) (interface{}, error) {
-	// Take special care to keep the the machine random and time state
-	// updated for write commands.
-	var info uhaha.RawMachineInfo
-	uhaha.ReadRawMachineInfo(m, &info)
-	defer func() {
-		info.TS = int64(C.uhaha_ts)
-		info.Seed = int64(C.uhaha_seed)
-		uhaha.WriteRawMachineInfo(m, &info)
-	}()
-	return exec(args[1], true)
-}
-
-func cmdQUERY(m uhaha.Machine, args []string) (interface{}, error) {
-	return exec(args[1], false)
-}
-
 func cmdBEGIN(m uhaha.Machine, args []string) (interface{}, error) {
+	// PASSIVE
 	if len(args) != 1 {
-		return nil, uhaha.ErrWrongNumArgs
+		return nil, errTooMuchInput
 	}
 	c := m.Context().(*client)
 	if c.tx {
@@ -148,8 +140,9 @@ func cmdBEGIN(m uhaha.Machine, args []string) (interface{}, error) {
 }
 
 func cmdEND(m uhaha.Machine, args []string) (interface{}, error) {
+	// PASSIVE
 	if len(args) != 1 {
-		return nil, uhaha.ErrWrongNumArgs
+		return nil, errTooMuchInput
 	}
 	c := m.Context().(*client)
 	if !c.tx {
@@ -172,6 +165,25 @@ func cmdEND(m uhaha.Machine, args []string) (interface{}, error) {
 		return uhaha.FilterArgs([]string{"$QUERY", string(data)}), nil
 	}
 	return uhaha.FilterArgs([]string{"$EXEC", string(data)}), nil
+}
+
+func cmdEXEC(m uhaha.Machine, args []string) (interface{}, error) {
+	// WRITE
+	// Take special care to keep the the machine random and time state
+	// updated for write commands.
+	var info uhaha.RawMachineInfo
+	uhaha.ReadRawMachineInfo(m, &info)
+	defer func() {
+		info.TS = int64(C.uhaha_ts)
+		info.Seed = int64(C.uhaha_seed)
+		uhaha.WriteRawMachineInfo(m, &info)
+	}()
+	return exec(args[1], true)
+}
+
+func cmdQUERY(m uhaha.Machine, args []string) (interface{}, error) {
+	// READ
+	return exec(args[1], false)
 }
 
 func parseExecRes(res string) ([][]interface{}, error) {
@@ -228,16 +240,6 @@ func parseExecRes(res string) ([][]interface{}, error) {
 	return rows, nil
 }
 
-func dbexec(sql string) (rows [][]interface{}, err error) {
-	csql := C.CString(sql)
-	errmsg := C.GoString(C.db_exec(csql))
-	C.free(unsafe.Pointer(csql))
-	if errmsg != "" {
-		return nil, errors.New(errmsg)
-	}
-	return parseExecRes(C.GoStringN(C.result, C.result_len))
-}
-
 func exec(sqlJSON string, write bool) (interface{}, error) {
 	var sqls []string
 	var tx bool
@@ -253,30 +255,34 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 		tx = true
 	}
 	res := make([]interface{}, len(sqls))
+	dbmu.Lock()
+	defer dbmu.Unlock()
 	if !write {
 		// read commands need to take care to reset the machine state back to
 		// where it started.
-		dbmu.Lock()
 		ts := C.uhaha_ts
 		seed := C.uhaha_seed
 		defer func() {
 			C.uhaha_ts = ts
 			C.uhaha_seed = seed
-			dbmu.Unlock()
 		}()
 	}
 	if tx {
-		if _, err := dbexec("begin"); err != nil {
+		if err := db.exec("begin", nil); err != nil {
 			return nil, err
 		}
 	}
 	for i, sql := range sqls {
-		rows, err := dbexec(sql)
+		var rows [][]string
+		err := db.exec(sql, func(row []string) bool {
+			rows = append(rows, row)
+			return true
+		})
 		if err != nil {
 			if !tx {
 				return nil, err
 			}
-			if _, err := dbexec("rollback"); err != nil {
+			if err := db.exec("rollback", nil); err != nil {
 				return nil, err
 			}
 			res[i] = err
@@ -289,7 +295,7 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 		res[i] = rows
 	}
 	if tx {
-		if _, err := dbexec("commit"); err != nil {
+		if err := db.exec("commit", nil); err != nil {
 			return nil, err
 		}
 		return res, nil
@@ -300,7 +306,10 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 type snap struct{}
 
 func (s *snap) Done(path string) {
-	disableCheckpoints = false
+	dbmu.Lock()
+	defer dbmu.Unlock()
+	must(nil, db.checkpoint())
+	must(nil, db.autocheckpoint(1000))
 }
 
 func (s *snap) Persist(wr io.Writer) error {
@@ -314,13 +323,19 @@ func (s *snap) Persist(wr io.Writer) error {
 }
 
 func snapshot(_ interface{}) (uhaha.Snapshot, error) {
-	disableCheckpoints = true
-	C.db_checkpoint()
+	if err := db.autocheckpoint(0); err != nil {
+		return nil, err
+	}
+	if err := db.checkpoint(); err != nil {
+		return nil, err
+	}
 	return &snap{}, nil
 }
 
 func restore(rd io.Reader) (interface{}, error) {
-	C.db_close()
+	if err := db.close(); err != nil {
+		return nil, err
+	}
 	if err := os.RemoveAll(filepath.Dir(dbPath)); err != nil {
 		return nil, err
 	}
@@ -335,10 +350,8 @@ func restore(rd io.Reader) (interface{}, error) {
 	if _, err := io.Copy(f, rd); err != nil {
 		return nil, err
 	}
-	cs := C.CString(dbPath)
-	C.db_open(cs)
-	C.free(unsafe.Pointer(cs))
-	return nil, nil
+	db, err = openSQLDatabase(dbPath)
+	return nil, err
 }
 
 func must(v interface{}, err error) interface{} {
@@ -374,6 +387,17 @@ func (sv *sqlValidator) release() {
 	sv.db = nil
 }
 
+func sqlKeyword(sql string) string {
+	keyword := sql
+	idx := strings.IndexAny(keyword, " \t\n\v\f\r;")
+	if idx != -1 {
+		keyword = keyword[:idx]
+	}
+	return strings.ToLower(keyword)
+}
+
+// validate a sql statement and determine if it's readonly. The readonly return
+// value is only a hint but it won't have have false positives.
 func (sv *sqlValidator) validate(sql string) (readonly bool, err error) {
 	sql = strings.TrimSpace(sql)
 	var stmt *C.sqlite3_stmt
@@ -381,8 +405,11 @@ func (sv *sqlValidator) validate(sql string) (readonly bool, err error) {
 	csql := C.CString(sql)
 	rc := C.sqlite3_prepare_v2(sv.db, csql, C.int(len(sql)), &stmt, &tail)
 	C.free(unsafe.Pointer(csql))
+	defer func() {
+		C.sqlite3_finalize(stmt)
+	}()
 	if tail != nil && strings.TrimSpace(C.GoString(tail)) != "" {
-		return false, errors.New("too much input")
+		return false, errTooMuchInput
 	}
 	if rc != C.SQLITE_OK {
 		errmsg := C.GoString(C.sqlite3_errmsg(sv.db))
@@ -396,19 +423,96 @@ func (sv *sqlValidator) validate(sql string) (readonly bool, err error) {
 	} else {
 		readonly = C.sqlite3_stmt_readonly(stmt) != 0
 	}
-	rc = C.sqlite3_finalize(stmt)
-	if rc != C.SQLITE_OK {
-		return false, errors.New(C.GoString(C.sqlite3_errmsg(sv.db)))
-	}
 	if !readonly {
-		keyword := sql
-		idx := strings.IndexAny(sql, " \t\n\v\f\r")
-		if idx != -1 {
-			keyword = sql[:idx]
-		}
-		if strings.ToLower(keyword) == "select" {
+		if sqlKeyword(sql) == "select" {
 			readonly = true
 		}
 	}
 	return readonly, nil
+}
+
+type sqlDatabase struct {
+	db *C.sqlite3
+}
+
+func (db *sqlDatabase) close() error {
+	if db.db == nil {
+		return errors.New("database closed")
+	}
+	C.sqlite3_close(db.db)
+	db.db = nil
+	return nil
+}
+
+func openSQLDatabase(path string) (*sqlDatabase, error) {
+	db := new(sqlDatabase)
+	cstr := C.CString(path)
+	rc := C.sqlite3_open(cstr, &db.db)
+	C.free(unsafe.Pointer(cstr))
+	if rc != C.SQLITE_OK {
+		return nil, errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
+	}
+	if err := db.exec("PRAGMA journal_mode=WAL", nil); err != nil {
+		db.close()
+		return nil, err
+	}
+	return db, nil
+}
+
+func (db *sqlDatabase) exec(sql string, iter func(row []string) bool) error {
+	if db.db == nil {
+		return errors.New("database closed")
+	}
+	var stmt *C.sqlite3_stmt
+	csql := C.CString(sql)
+	rc := C.sqlite3_prepare_v2(db.db, csql, C.int(len(sql)), &stmt, nil)
+	C.free(unsafe.Pointer(csql))
+	if rc != C.SQLITE_OK {
+		return errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
+	}
+	ncols := int(C.sqlite3_column_count(stmt))
+	row := make([]string, ncols)
+	for i := 0; i < ncols; i++ {
+		row[i] = C.GoString(C.sqlite3_column_name(stmt, C.int(i)))
+	}
+	if iter == nil || iter(row) {
+		for {
+			rc := C.sqlite3_step(stmt)
+			if rc == C.SQLITE_DONE {
+				break
+			}
+			if rc == C.SQLITE_ROW {
+				row := make([]string, ncols)
+				for i := 0; i < ncols; i++ {
+					text := C.sqlite3_column_text(stmt, C.int(i))
+					row[i] = C.GoString((*C.char)(unsafe.Pointer(text)))
+				}
+				if iter != nil && !iter(row) {
+					break
+				}
+			}
+		}
+	}
+	rc = C.sqlite3_finalize(stmt)
+	if rc != C.SQLITE_OK {
+		return errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
+	}
+	return nil
+}
+
+func (db *sqlDatabase) checkpoint() error {
+	rc := C.sqlite3_wal_checkpoint_v2(db.db, nil,
+		C.SQLITE_CHECKPOINT_TRUNCATE, nil, nil)
+	if rc != C.SQLITE_OK {
+		return errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
+	}
+	return nil
+}
+
+func (db *sqlDatabase) autocheckpoint(n int) error {
+	rc := C.sqlite3_wal_autocheckpoint(db.db, C.int(n))
+	if rc != C.SQLITE_OK {
+		return errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
+	}
+	return nil
 }
