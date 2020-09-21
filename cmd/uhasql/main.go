@@ -113,6 +113,9 @@ func cmdANY(m uhaha.Machine, args []string) (interface{}, error) {
 		return nil, errors.New("\"begin\" without \"end\"")
 	}
 	if len(stmts) == 0 {
+		if txbegan {
+			return [][]string{[]string{}, []string{}}, nil
+		}
 		return []string{}, nil
 	}
 	vals := map[string]interface{}{
