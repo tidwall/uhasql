@@ -3,21 +3,20 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"unsafe"
 
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/redcon"
 	"github.com/tidwall/uhaha"
 )
 
-// #cgo LDFLAGS: -Lsqlite -lsqlite
-// #include "sqlite/sqlite.h"
+// #cgo LDFLAGS: -L../../sqlite -lsqlite
+// #include "../../sqlite/sqlite.h"
 // #include <stdint.h>
 // #include <stdlib.h>
 // extern int64_t uhaha_seed;
@@ -29,19 +28,6 @@ var dbPath string
 var db *sqlDatabase
 
 var errTooMuchInput = errors.New("too much input")
-
-type client struct {
-	tx   bool
-	sqls []string
-	ros  []bool
-	sv   *sqlValidator
-}
-
-func (c *client) reset() {
-	c.tx = false
-	c.sqls = []string{}
-	c.ros = []bool{}
-}
 
 func main() {
 	var conf uhaha.Config
@@ -57,16 +43,6 @@ func main() {
 	conf.Snapshot = snapshot
 	conf.Restore = restore
 
-	conf.ConnOpened = func(addr string) (context interface{}, accept bool) {
-		c := new(client)
-		c.sv = newSQLValidator()
-		c.reset()
-		return c, true
-	}
-	conf.ConnClosed = func(context interface{}, addr string) {
-		c := context.(*client)
-		c.sv.release()
-	}
 	conf.AddWriteCommand("$EXEC", cmdEXEC)
 	conf.AddReadCommand("$QUERY", cmdQUERY)
 	conf.AddCatchallCommand(cmdANY)
@@ -83,88 +59,73 @@ func tick(m uhaha.Machine) {
 func cmdANY(m uhaha.Machine, args []string) (interface{}, error) {
 	// PASSIVE
 	sql := strings.TrimSpace(strings.Join(args, " "))
-	keyword := sqlKeyword(sql)
-	remain := strings.TrimSpace(sql[len(keyword):])
-	if len(remain) == 0 || remain == ";" {
-		args = []string{keyword}
-	} else {
-		args = []string{keyword, remain}
-	}
-	switch keyword {
-	case "alter", "analyze", "attach", "create", "delete", "detach", "drop",
-		"explain", "indexed", "insert", "on", "reindex", "replace", "select",
-		"update", "upsert", "with":
-		return cmdSQL(m, args)
-	case "begin":
-		return cmdBEGIN(m, args)
-	case "end", "commit", "rollback":
-		return cmdEND(m, args)
-	}
-	return nil, uhaha.ErrUnknownCommand
-}
 
-func cmdSQL(m uhaha.Machine, args []string) (interface{}, error) {
-	// PASSIVE
-	c := m.Context().(*client)
-	sql := strings.Join(args, " ")
-	ro, err := c.sv.validate(sql)
+	readonly := true
+	var txbegan bool
+	var txended bool
+	var err error
+	stmts := []string{}
+	sqlForEachStatement(sql, func(sql string) bool {
+		cmd := sqlCommand(sql)
+		switch cmd {
+		case "alter", "analyze", "attach", "create", "delete", "detach",
+			"drop", "explain", "indexed", "insert", "on", "reindex",
+			"replace", "update", "upsert", "with":
+			readonly = false
+		case "select":
+		case "begin":
+			if len(sql) != len(cmd) {
+				err = errTooMuchInput
+				return false
+			}
+			if txbegan {
+				err = errors.New("nested transactions are not supported")
+				return false
+			}
+			if len(stmts) > 0 {
+				err = errors.New("\"begin\" must be the first statement")
+				return false
+			}
+			txbegan = true
+			return true
+		case "end":
+			if len(sql) != len(cmd) {
+				err = errTooMuchInput
+				return false
+			}
+			txended = true
+			return true
+		default:
+			err = fmt.Errorf("near \"%s\": syntax error", cmd)
+			return false
+		}
+		if txended {
+			err = errors.New("\"end\" must be the last statement")
+			return false
+		}
+		stmts = append(stmts, sql)
+		return true
+	})
 	if err != nil {
 		return nil, err
 	}
-	if c.tx {
-		c.sqls = append(c.sqls, sql)
-		c.ros = append(c.ros, ro)
-		return redcon.SimpleString("QUEUED"), nil
+	if txbegan && !txended {
+		return nil, errors.New("\"begin\" without \"end\"")
 	}
-	data, _ := json.Marshal(sql)
-	if ro {
+	if len(stmts) == 0 {
+		return []string{}, nil
+	}
+	vals := map[string]interface{}{
+		"tx":    txbegan,
+		"stmts": stmts,
+	}
+	data, _ := json.Marshal(vals)
+	if readonly {
 		args = []string{"$QUERY", string(data)}
-
 	} else {
 		args = []string{"$EXEC", string(data)}
 	}
 	return uhaha.FilterArgs(args), nil
-}
-
-func cmdBEGIN(m uhaha.Machine, args []string) (interface{}, error) {
-	// PASSIVE
-	if len(args) != 1 {
-		return nil, errTooMuchInput
-	}
-	c := m.Context().(*client)
-	if c.tx {
-		return nil, errors.New("nested transactions are not supported")
-	}
-	c.tx = true
-	return redcon.SimpleString("OK"), nil
-}
-
-func cmdEND(m uhaha.Machine, args []string) (interface{}, error) {
-	// PASSIVE
-	if len(args) != 1 {
-		return nil, errTooMuchInput
-	}
-	c := m.Context().(*client)
-	if !c.tx {
-		return nil, errors.New("transaction not started")
-	}
-	if strings.ToLower(args[0]) == "rollback" {
-		c.reset()
-		return redcon.SimpleString("OK"), nil
-	}
-	data, _ := json.Marshal(c.sqls)
-	ro := true
-	for i := 0; i < len(c.ros); i++ {
-		if !c.ros[i] {
-			ro = false
-			break
-		}
-	}
-	c.reset()
-	if ro {
-		return uhaha.FilterArgs([]string{"$QUERY", string(data)}), nil
-	}
-	return uhaha.FilterArgs([]string{"$EXEC", string(data)}), nil
 }
 
 func cmdEXEC(m uhaha.Machine, args []string) (interface{}, error) {
@@ -186,75 +147,15 @@ func cmdQUERY(m uhaha.Machine, args []string) (interface{}, error) {
 	return exec(args[1], false)
 }
 
-func parseExecRes(res string) ([][]interface{}, error) {
-	var rows [][]interface{}
-	for {
-		if len(res) == 0 {
-			break
-		}
-		var row []interface{}
-		for {
-			if len(res) == 0 {
-				break
-			}
-			idx := strings.IndexByte(res, '.')
-			if idx == -1 {
-				if len(res) == 0 {
-					return nil, errors.New("invalid response A")
-				}
-				if res[0] == '\n' {
-					res = res[1:]
-					break
-				}
-				return nil, errors.New("invalid response AA")
-			}
-			str := res[:idx]
-			res = res[idx+1:]
-			nbytes, err := strconv.Atoi(str)
-			if err != nil {
-				return nil, errors.New("invalid response B")
-			}
-			if len(res) < nbytes {
-				return nil, errors.New("invalid response C")
-			}
-			if nbytes == 0 {
-				row = append(row, nil)
-			} else {
-				row = append(row, res[:nbytes-1])
-			}
-			res = res[nbytes:]
-			if len(res) == 0 {
-				return nil, errors.New("invalid response D")
-			}
-			if res[0] == '\n' {
-				res = res[1:]
-				break
-			}
-			if res[0] != '|' {
-				return nil, errors.New("invalid response E")
-			}
-			res = res[1:]
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
-}
-
 func exec(sqlJSON string, write bool) (interface{}, error) {
 	var sqls []string
-	var tx bool
-	val := gjson.Parse(sqlJSON)
-	if val.Type == gjson.String {
+	// val := gjson.Parse(sqlJSON)
+	tx := gjson.Get(sqlJSON, "tx").Bool()
+	var res []interface{}
+	gjson.Get(sqlJSON, "stmts").ForEach(func(_, val gjson.Result) bool {
 		sqls = append(sqls, val.String())
-		tx = false
-	} else {
-		val.ForEach(func(_, val gjson.Result) bool {
-			sqls = append(sqls, val.String())
-			return true
-		})
-		tx = true
-	}
-	res := make([]interface{}, len(sqls))
+		return true
+	})
 	dbmu.Lock()
 	defer dbmu.Unlock()
 	if !write {
@@ -267,10 +168,13 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 			C.uhaha_seed = seed
 		}()
 	}
-	if tx {
+	if len(sqls) > 1 {
 		if err := db.exec("begin", nil); err != nil {
 			return nil, err
 		}
+	}
+	if tx {
+		res = append(res, []string{})
 	}
 	for i, sql := range sqls {
 		var rows [][]string
@@ -282,25 +186,29 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 			if !tx {
 				return nil, err
 			}
-			if err := db.exec("rollback", nil); err != nil {
-				return nil, err
+			if len(sqls) > 1 {
+				if err := db.exec("rollback", nil); err != nil {
+					return nil, err
+				}
 			}
-			res[i] = err
+			res = append(res, err)
 			i++
 			for ; i < len(sqls); i++ {
 				res[i] = errors.New("transaction rolledback")
 			}
 			return res, nil
 		}
-		res[i] = rows
+		res = append(res, rows)
 	}
 	if tx {
-		if err := db.exec("commit", nil); err != nil {
+		res = append(res, []string{})
+	}
+	if len(sqls) > 1 {
+		if err := db.exec("end", nil); err != nil {
 			return nil, err
 		}
-		return res, nil
 	}
-	return res[0], nil
+	return res, nil
 }
 
 type snap struct{}
@@ -359,76 +267,6 @@ func must(v interface{}, err error) interface{} {
 		panic(err)
 	}
 	return v
-}
-
-type sqlValidator struct {
-	db *C.sqlite3
-}
-
-// newSQLValidator is used to validate sqlite statements prior to sending to a
-// sqlite database instance. The validator must be released when no longer in
-// use.
-func newSQLValidator() *sqlValidator {
-	sv := new(sqlValidator)
-	cpath := C.CString(":memory:")
-	rc := C.sqlite3_open(cpath, &sv.db)
-	C.free(unsafe.Pointer(cpath))
-	if rc != C.SQLITE_OK {
-		panic(errors.New(C.GoString(C.sqlite3_errmsg(sv.db))))
-	}
-	return sv
-}
-
-func (sv *sqlValidator) release() {
-	rc := C.sqlite3_close(sv.db)
-	if rc != C.SQLITE_OK {
-		panic(errors.New(C.GoString(C.sqlite3_errmsg(sv.db))))
-	}
-	sv.db = nil
-}
-
-func sqlKeyword(sql string) string {
-	keyword := sql
-	idx := strings.IndexAny(keyword, " \t\n\v\f\r;")
-	if idx != -1 {
-		keyword = keyword[:idx]
-	}
-	return strings.ToLower(keyword)
-}
-
-// validate a sql statement and determine if it's readonly. The readonly return
-// value is only a hint but it won't have have false positives.
-func (sv *sqlValidator) validate(sql string) (readonly bool, err error) {
-	sql = strings.TrimSpace(sql)
-	var stmt *C.sqlite3_stmt
-	var tail *C.char
-	csql := C.CString(sql)
-	rc := C.sqlite3_prepare_v2(sv.db, csql, C.int(len(sql)), &stmt, &tail)
-	C.free(unsafe.Pointer(csql))
-	defer func() {
-		C.sqlite3_finalize(stmt)
-	}()
-	if tail != nil && strings.TrimSpace(C.GoString(tail)) != "" {
-		return false, errTooMuchInput
-	}
-	if rc != C.SQLITE_OK {
-		errmsg := C.GoString(C.sqlite3_errmsg(sv.db))
-		var ok bool
-		if !ok && strings.HasPrefix(errmsg, "no such table: ") {
-			ok = true
-		}
-		if !ok {
-			return false, errors.New(errmsg)
-		}
-	} else {
-		readonly = C.sqlite3_stmt_readonly(stmt) != 0
-	}
-	if !readonly {
-		if sqlKeyword(sql) == "select" {
-			readonly = true
-		}
-	}
-	return readonly, nil
 }
 
 type sqlDatabase struct {
@@ -515,4 +353,98 @@ func (db *sqlDatabase) autocheckpoint(n int) error {
 		return errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
 	}
 	return nil
+}
+
+// sqlForEachStatement iterates over each sql statement in a block of semicolon
+// seperated statements. Comments are removed. Returns complete=false if the
+// input sql ended too soon.
+func sqlForEachStatement(sql string, iter func(sql string) bool) bool {
+	i, s, complete := 0, 0, true
+	for ; i < len(sql); i++ {
+		switch sql[i] {
+		case '/':
+			e := i
+			if i+1 != len(sql) && sql[i+1] == '*' {
+				i++
+				complete = false
+				for ; i < len(sql); i++ {
+					if sql[i] == '*' {
+						if i+1 != len(sql) && sql[i+1] == '/' {
+							i++
+							sql = sql[s:e] + sql[i+1:]
+							i, s = 0, 0
+							complete = true
+							break
+						}
+					}
+				}
+			}
+		case '-':
+			e := i
+			if i+1 != len(sql) && sql[i+1] == '-' {
+				i++
+				for ; i < len(sql); i++ {
+					if sql[i] == '\n' {
+						sql = sql[s:e] + sql[i+1:]
+						i, s = 0, 0
+						break
+					}
+				}
+			}
+		case '\'', '"', '`':
+			q := sql[i]
+			i++
+			complete = false
+			for ; i < len(sql); i++ {
+				if sql[i] == q {
+					if i+1 != len(sql) && sql[i+1] == q {
+						i++
+						continue
+					}
+					complete = true
+					break
+				}
+			}
+		case '[':
+			i++
+			complete = false
+			for ; i < len(sql); i++ {
+				if sql[i] == ']' {
+					complete = true
+					break
+				}
+			}
+		case ';':
+			part := strings.TrimSpace(sql[s:i])
+			if len(part) > 0 {
+				if !iter(part) {
+					return false
+				}
+			}
+			i++
+			s = i
+		}
+	}
+	if i > len(sql) {
+		i = len(sql)
+	}
+	part := strings.TrimSpace(sql[s:i])
+	if len(part) > 0 {
+		if !iter(part) {
+			return false
+		}
+	}
+	return complete
+}
+
+// sqlCommand returns the sql statement command in all lowercase characters.
+func sqlCommand(sql string) string {
+	for i := 0; i < len(sql); i++ {
+		alpha := (sql[i] >= 'A' && sql[i] <= 'Z') ||
+			(sql[i] >= 'a' && sql[i] <= 'z')
+		if !alpha {
+			return strings.ToLower(sql[:i])
+		}
+	}
+	return strings.ToLower(sql)
 }
