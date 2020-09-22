@@ -69,10 +69,12 @@ func cmdANY(m uhaha.Machine, args []string) (interface{}, error) {
 		cmd := sqlCommand(sql)
 		switch cmd {
 		case "alter", "analyze", "attach", "create", "delete", "detach",
-			"drop", "explain", "indexed", "insert", "on", "reindex",
+			"drop", "indexed", "insert", "on", "reindex",
 			"replace", "update", "upsert", "with":
+			// write command
 			readonly = false
-		case "select":
+		case "explain", "select":
+			// readonly command
 		case "begin":
 			if len(sql) != len(cmd) {
 				err = errTooMuchInput
