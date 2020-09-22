@@ -28,7 +28,6 @@ var dbPath string
 var db *sqlDatabase
 
 var errTooMuchInput = errors.New("too much input")
-var errSiblingFailed = errors.New("sibling failed")
 
 func main() {
 	var conf uhaha.Config
@@ -183,33 +182,19 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 	if tx {
 		res = append(res, []string{})
 	}
-	for i, sql := range sqls {
+	for _, sql := range sqls {
 		var rows [][]string
 		err := db.exec(sql, func(row []string) bool {
 			rows = append(rows, row)
 			return true
 		})
 		if err != nil {
-			if len(sqls) < 1 {
-				return nil, err
-			}
 			if len(sqls) > 1 {
 				if err := db.exec("rollback", nil); err != nil {
 					return nil, err
 				}
 			}
-			for i := 0; i < len(res); i++ {
-				res[i] = errSiblingFailed
-			}
-			res = append(res, err)
-			i++
-			for ; i < len(sqls); i++ {
-				res = append(res, errSiblingFailed)
-			}
-			if tx {
-				res = append(res, errSiblingFailed)
-			}
-			return res, nil
+			return nil, err
 		}
 		res = append(res, rows)
 	}
