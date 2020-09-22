@@ -311,6 +311,8 @@ func (db *sqlDatabase) exec(sql string, iter func(row []string) bool) error {
 	for i := 0; i < ncols; i++ {
 		row[i] = C.GoString(C.sqlite3_column_name(stmt, C.int(i)))
 	}
+
+	var ferr error
 	if iter == nil || iter(row) {
 		for {
 			rc := C.sqlite3_step(stmt)
@@ -326,14 +328,23 @@ func (db *sqlDatabase) exec(sql string, iter func(row []string) bool) error {
 				if iter != nil && !iter(row) {
 					break
 				}
+				continue
 			}
+			// failed
+			ferr = errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
+			rc = C.sqlite3_finalize(stmt)
+			if rc != C.SQLITE_OK {
+				return errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
+			}
+			break
+
 		}
 	}
 	rc = C.sqlite3_finalize(stmt)
 	if rc != C.SQLITE_OK {
 		return errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
 	}
-	return nil
+	return ferr
 }
 
 func (db *sqlDatabase) checkpoint() error {
