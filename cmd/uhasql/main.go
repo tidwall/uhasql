@@ -28,6 +28,7 @@ var dbPath string
 var db *sqlDatabase
 
 var errTooMuchInput = errors.New("too much input")
+var errSiblingFailed = errors.New("sibling failed")
 
 func main() {
 	var conf uhaha.Config
@@ -89,6 +90,10 @@ func cmdANY(m uhaha.Machine, args []string) (interface{}, error) {
 			txbegan = true
 			return true
 		case "end":
+			if !txbegan {
+				err = errors.New("\"end\" missing \"begin\"")
+				return false
+			}
 			if len(sql) != len(cmd) {
 				err = errTooMuchInput
 				return false
@@ -152,7 +157,6 @@ func cmdQUERY(m uhaha.Machine, args []string) (interface{}, error) {
 
 func exec(sqlJSON string, write bool) (interface{}, error) {
 	var sqls []string
-	// val := gjson.Parse(sqlJSON)
 	tx := gjson.Get(sqlJSON, "tx").Bool()
 	var res []interface{}
 	gjson.Get(sqlJSON, "stmts").ForEach(func(_, val gjson.Result) bool {
@@ -186,7 +190,7 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 			return true
 		})
 		if err != nil {
-			if !tx {
+			if len(sqls) < 1 {
 				return nil, err
 			}
 			if len(sqls) > 1 {
@@ -194,10 +198,16 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 					return nil, err
 				}
 			}
+			for i := 0; i < len(res); i++ {
+				res[i] = errSiblingFailed
+			}
 			res = append(res, err)
 			i++
 			for ; i < len(sqls); i++ {
-				res[i] = errors.New("transaction rolledback")
+				res = append(res, errSiblingFailed)
+			}
+			if tx {
+				res = append(res, errSiblingFailed)
 			}
 			return res, nil
 		}
