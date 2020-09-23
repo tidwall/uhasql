@@ -182,7 +182,7 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 		}
 	}
 	if tx {
-		res = append(res, []string{})
+		res = append(res, [][]string{[]string{}})
 	}
 	for _, sql := range sqls {
 		var rows [][]string
@@ -201,7 +201,7 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 		res = append(res, rows)
 	}
 	if tx {
-		res = append(res, []string{})
+		res = append(res, [][]string{[]string{}})
 	}
 	if len(sqls) > 1 {
 		if err := db.exec("end", nil); err != nil {

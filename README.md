@@ -95,11 +95,11 @@ don't add any nothing but additional clarity, and two extra return values.
 ```
 
 > "begin; insert into org values ('Monique', 'Executive'); select last_insert_rowid(); end;"
-1) (empty array)
+1) 1) (empty array)
 2) 1) (empty array)
 3) 1) 1) "last_insert_rowid()"
    2) 1) "4"
-4) (empty array)
+4) 1) (empty array)
 ```
 
 ## Pitfalls
