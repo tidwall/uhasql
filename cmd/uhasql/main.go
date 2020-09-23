@@ -15,7 +15,7 @@ import (
 	"github.com/tidwall/uhaha"
 )
 
-// #cgo LDFLAGS: -L../../sqlite -lsqlite
+// #cgo LDFLAGS: -L../../sqlite -lsqlite -ldl
 // #include "../../sqlite/sqlite.h"
 // #include <stdint.h>
 // #include <stdlib.h>
