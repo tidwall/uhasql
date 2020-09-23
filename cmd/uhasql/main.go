@@ -23,6 +23,9 @@ import (
 // extern int64_t uhaha_ts;
 import "C"
 
+var buildVersion string
+var buildGitSHA string
+
 var dbmu sync.Mutex
 var dbPath string
 var db *sqlDatabase
@@ -32,7 +35,8 @@ var errTooMuchInput = errors.New("too much input")
 func main() {
 	var conf uhaha.Config
 	conf.Name = "uhasql"
-	conf.Version = "0.1.0"
+	conf.Version = strings.Replace(buildVersion, "v", "", -1)
+	conf.GitSHA = buildGitSHA
 	conf.DataDirReady = func(dir string) {
 		os.RemoveAll(filepath.Join(dir, "db"))
 		os.Mkdir(filepath.Join(dir, "db"), 0777)
