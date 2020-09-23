@@ -294,6 +294,10 @@ func openSQLDatabase(path string) (*sqlDatabase, error) {
 		db.close()
 		return nil, err
 	}
+	if err := db.exec("PRAGMA synchronous=off", nil); err != nil {
+		db.close()
+		return nil, err
+	}
 	return db, nil
 }
 
