@@ -74,9 +74,8 @@ func cmdANY(m uhaha.Machine, args []string) (interface{}, error) {
 	sqlForEachStatement(sql, func(sql string) bool {
 		cmd := sqlCommand(sql)
 		switch cmd {
-		case "alter", "analyze", "attach", "create", "delete", "detach",
-			"drop", "indexed", "insert", "on", "reindex",
-			"replace", "update", "upsert", "with":
+		case "alter", "analyze", "create", "delete", "drop", "insert",
+			"reindex", "replace", "update", "upsert":
 			// write command
 			readonly = false
 		case "explain", "select":
@@ -173,7 +172,11 @@ func exec(sqlJSON string, readonly bool) (interface{}, error) {
 	})
 	var db *sqlDatabase
 	if readonly {
-		db = takeReaderDB()
+		var err error
+		db, err = takeReaderDB()
+		if err != nil {
+			return nil, err
+		}
 		defer releaseReaderDB(db)
 
 		dbmu.RLock()
@@ -393,26 +396,26 @@ func (db *sqlDatabase) autocheckpoint(n int) error {
 	return nil
 }
 
+const rdbMaxPool = 50
+
 var rdbsMu sync.Mutex
 var rdbs []*sqlDatabase
 
-const maxRDBs = 20
-
-func takeReaderDB() *sqlDatabase {
+func takeReaderDB() (*sqlDatabase, error) {
 	rdbsMu.Lock()
 	if len(rdbs) > 1 {
 		db := rdbs[len(rdbs)-1]
 		rdbs = rdbs[:len(rdbs)-1]
 		rdbsMu.Unlock()
-		return db
+		return db, nil
 	}
 	rdbsMu.Unlock()
-	return must(openSQLDatabase(dbPath, true)).(*sqlDatabase)
+	return openSQLDatabase(dbPath, true)
 }
 
 func releaseReaderDB(db *sqlDatabase) {
 	rdbsMu.Lock()
-	if len(rdbs) < maxRDBs {
+	if len(rdbs) < rdbMaxPool {
 		rdbs = append(rdbs, db)
 		rdbsMu.Unlock()
 	} else {
