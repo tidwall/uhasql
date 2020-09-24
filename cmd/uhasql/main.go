@@ -21,14 +21,16 @@ import (
 // #include <stdlib.h>
 // extern int64_t uhaha_seed;
 // extern int64_t uhaha_ts;
+// void uhaha_begin_reader();
+// void uhaha_end_reader();
 import "C"
 
 var buildVersion string
 var buildGitSHA string
 
-var dbmu sync.Mutex
+var dbmu sync.RWMutex
 var dbPath string
-var db *sqlDatabase
+var wdb *sqlDatabase
 
 var errTooMuchInput = errors.New("too much input")
 
@@ -41,7 +43,7 @@ func main() {
 		os.RemoveAll(filepath.Join(dir, "db"))
 		os.Mkdir(filepath.Join(dir, "db"), 0777)
 		dbPath = filepath.Join(dir, "db", "sqlite.db")
-		db = must(openSQLDatabase(dbPath)).(*sqlDatabase)
+		wdb = must(openSQLDatabase(dbPath, false)).(*sqlDatabase)
 	}
 	conf.Tick = tick
 	conf.Snapshot = snapshot
@@ -145,6 +147,7 @@ func cmdEXEC(m uhaha.Machine, args []string) (interface{}, error) {
 	// WRITE
 	// Take special care to keep the the machine random and time state
 	// updated for write commands.
+
 	var info uhaha.RawMachineInfo
 	uhaha.ReadRawMachineInfo(m, &info)
 	defer func() {
@@ -152,15 +155,15 @@ func cmdEXEC(m uhaha.Machine, args []string) (interface{}, error) {
 		info.Seed = int64(C.uhaha_seed)
 		uhaha.WriteRawMachineInfo(m, &info)
 	}()
-	return exec(args[1], true)
+	return exec(args[1], false)
 }
 
 func cmdQUERY(m uhaha.Machine, args []string) (interface{}, error) {
 	// READ
-	return exec(args[1], false)
+	return exec(args[1], true)
 }
 
-func exec(sqlJSON string, write bool) (interface{}, error) {
+func exec(sqlJSON string, readonly bool) (interface{}, error) {
 	var sqls []string
 	tx := gjson.Get(sqlJSON, "tx").Bool()
 	var res []interface{}
@@ -168,18 +171,23 @@ func exec(sqlJSON string, write bool) (interface{}, error) {
 		sqls = append(sqls, val.String())
 		return true
 	})
-	dbmu.Lock()
-	defer dbmu.Unlock()
-	if !write {
-		// read commands need to take care to reset the machine state back to
-		// where it started.
-		ts := C.uhaha_ts
-		seed := C.uhaha_seed
+	var db *sqlDatabase
+	if readonly {
+		db = takeReaderDB()
+		defer releaseReaderDB(db)
+
+		dbmu.RLock()
+		C.uhaha_begin_reader()
 		defer func() {
-			C.uhaha_ts = ts
-			C.uhaha_seed = seed
+			C.uhaha_end_reader()
+			dbmu.RUnlock()
 		}()
+	} else {
+		dbmu.Lock()
+		defer dbmu.Unlock()
+		db = wdb
 	}
+
 	if len(sqls) > 1 {
 		if err := db.exec("begin", nil); err != nil {
 			return nil, err
@@ -220,8 +228,8 @@ type snap struct{}
 func (s *snap) Done(path string) {
 	dbmu.Lock()
 	defer dbmu.Unlock()
-	must(nil, db.checkpoint())
-	must(nil, db.autocheckpoint(1000))
+	must(nil, wdb.checkpoint())
+	must(nil, wdb.autocheckpoint(1000))
 }
 
 func (s *snap) Persist(wr io.Writer) error {
@@ -235,17 +243,21 @@ func (s *snap) Persist(wr io.Writer) error {
 }
 
 func snapshot(_ interface{}) (uhaha.Snapshot, error) {
-	if err := db.autocheckpoint(0); err != nil {
+	dbmu.Lock()
+	defer dbmu.Unlock()
+	if err := wdb.autocheckpoint(0); err != nil {
 		return nil, err
 	}
-	if err := db.checkpoint(); err != nil {
+	if err := wdb.checkpoint(); err != nil {
 		return nil, err
 	}
 	return &snap{}, nil
 }
 
 func restore(rd io.Reader) (interface{}, error) {
-	if err := db.close(); err != nil {
+	dbmu.Lock()
+	defer dbmu.Unlock()
+	if err := wdb.close(); err != nil {
 		return nil, err
 	}
 	if err := os.RemoveAll(filepath.Dir(dbPath)); err != nil {
@@ -262,7 +274,7 @@ func restore(rd io.Reader) (interface{}, error) {
 	if _, err := io.Copy(f, rd); err != nil {
 		return nil, err
 	}
-	db, err = openSQLDatabase(dbPath)
+	wdb, err = openSQLDatabase(dbPath, false)
 	return nil, err
 }
 
@@ -286,21 +298,28 @@ func (db *sqlDatabase) close() error {
 	return nil
 }
 
-func openSQLDatabase(path string) (*sqlDatabase, error) {
+func openSQLDatabase(path string, readonly bool) (*sqlDatabase, error) {
 	db := new(sqlDatabase)
 	cstr := C.CString(path)
-	rc := C.sqlite3_open(cstr, &db.db)
+	var rc C.int
+	if readonly {
+		rc = C.sqlite3_open_v2(cstr, &db.db, C.SQLITE_OPEN_READONLY, nil)
+	} else {
+		rc = C.sqlite3_open(cstr, &db.db)
+	}
 	C.free(unsafe.Pointer(cstr))
 	if rc != C.SQLITE_OK {
 		return nil, errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
 	}
-	if err := db.exec("PRAGMA journal_mode=WAL", nil); err != nil {
-		db.close()
-		return nil, err
-	}
-	if err := db.exec("PRAGMA synchronous=off", nil); err != nil {
-		db.close()
-		return nil, err
+	if !readonly {
+		if err := db.exec("PRAGMA journal_mode=WAL", nil); err != nil {
+			db.close()
+			return nil, err
+		}
+		if err := db.exec("PRAGMA synchronous=off", nil); err != nil {
+			db.close()
+			return nil, err
+		}
 	}
 	return db, nil
 }
@@ -372,6 +391,34 @@ func (db *sqlDatabase) autocheckpoint(n int) error {
 		return errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
 	}
 	return nil
+}
+
+var rdbsMu sync.Mutex
+var rdbs []*sqlDatabase
+
+const maxRDBs = 20
+
+func takeReaderDB() *sqlDatabase {
+	rdbsMu.Lock()
+	if len(rdbs) > 1 {
+		db := rdbs[len(rdbs)-1]
+		rdbs = rdbs[:len(rdbs)-1]
+		rdbsMu.Unlock()
+		return db
+	}
+	rdbsMu.Unlock()
+	return must(openSQLDatabase(dbPath, true)).(*sqlDatabase)
+}
+
+func releaseReaderDB(db *sqlDatabase) {
+	rdbsMu.Lock()
+	if len(rdbs) < maxRDBs {
+		rdbs = append(rdbs, db)
+		rdbsMu.Unlock()
+	} else {
+		rdbsMu.Unlock()
+		db.close()
+	}
 }
 
 // sqlForEachStatement iterates over each sql statement in a block of semicolon
