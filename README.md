@@ -28,7 +28,7 @@ $ ./uhasql-server
 
 ## Connecting 
 
-You can use Redis client to work with UhaSQL, but I've included a specialzed
+You can use any Redis client to work with UhaSQL, but I've included a specialzed
 tool `uhasql-cli` for tinkering with the database from the command line.
 It works a lot like the `sqlite3` command line tool.
 
