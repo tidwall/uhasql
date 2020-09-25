@@ -28,7 +28,7 @@ $ ./uhasql-server
 
 ## Connecting 
 
-You can use any Redis client to work with UhaSQL, but I've included a specialzed
+You can use Redis client to work with UhaSQL, but I've included a specialzed
 tool `uhasql-cli` for tinkering with the database from the command line.
 It works a lot like the `sqlite3` command line tool.
 
@@ -40,17 +40,21 @@ $ ./uhasql-cli
 
 Most any Sqlite statements will work. All statements will return one or more
 resultsets, depending on the number of statements that you send to the server
-in a single request.
+in a single request. Usually statements that update the database will not
+return data, so you will see something like "No results".
 
 ```
 uhasql> create table org (name text, department text);
+No results
 ```
 
 Let's insert two records.
 
 ```
 uhasql> insert into org values ('Janet', 'IT');
+No results
 uhasql> insert into org values ('Tom', 'Accounting');
+No results
 ```
 
 Ok. Now let's get the do a `select` statement on the table.
@@ -84,6 +88,19 @@ last_insert_rowid()
 
 This returned two resultsets. The first is the result to the `insert` statement.
 The second is the result to the `select` statement.
+
+You can optionally use the simple `begin` and `end` statements. They really
+don't add any nothing but additional clarity, and two extra return values.
+```
+
+uhasql> begin; insert into org values ('Monique', 'Executive'); select last_insert_rowid(); end;
+No results
+No results
+last_insert_rowid()
+-------------------
+4
+No results
+```
 
 ## Pitfalls
 
