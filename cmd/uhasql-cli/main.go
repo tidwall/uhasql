@@ -98,11 +98,11 @@ func main() {
 func writeResultSets(v interface{}) {
 	rss, _ := v.([]interface{})
 	for i := 0; i < len(rss); i++ {
-		writeResultSet(rss[i])
+		writeResultSet(rss[i], i == len(rss)-1)
 	}
 }
 
-func writeResultSet(v interface{}) {
+func writeResultSet(v interface{}, last bool) {
 	vv, _ := v.([]interface{})
 	rs := make([][]string, len(vv))
 	var colsz []int
@@ -140,7 +140,10 @@ func writeResultSet(v interface{}) {
 			nlines++
 		}
 	}
-	if nlines > 0 {
+	if nlines == 0 {
+		fmt.Printf("No results\n")
+	}
+	if !last {
 		fmt.Printf("\n")
 	}
 }
