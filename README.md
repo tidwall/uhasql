@@ -23,15 +23,17 @@ make
 To start a single node instance. For a full Raft cluster see the [Uhaha README](https://github.com/tidwall/uhaha).
 
 ```
-./uhasql
+$ ./uhasql-server
 ```
 
 ## Connecting 
 
-Use any Redis client. In this case we'll use the standard `redis-cli`.
+You can use Redis client to work with UhaSQL, but I've included a specialzed
+tool `uhasql-cli` for tinkering with the database from the command line.
+It works a lot like the `sqlite3` command line tool.
 
 ```
-$ redis-cli -p 11001
+$ ./uhasql-cli
 ```
 
 ## Statements
@@ -41,32 +43,25 @@ resultsets, depending on the number of statements that you send to the server
 in a single request.
 
 ```
-> "create table org (name text, department text)"
-1) 1) (empty array)
+uhasql> create table org (name text, department text);
 ```
-
-Above the "create table" statement did not return any results so we got the
-```(empty array)``` resultset. 
 
 Let's insert two records.
 
 ```
-> "insert into org values ('Janet', 'IT')"
-1) 1) (empty array)
-> "insert into org values ('Tom', 'Accounting')"
-1) 1) (empty array)
+uhasql> insert into org values ('Janet', 'IT');
+uhasql> insert into org values ('Tom', 'Accounting');
 ```
 
 Ok. Now let's get the do a `select` statement on the table.
 
 ```
-> "select * from org"
-1) 1) 1) "name"
-      2) "department"
-   2) 1) "janet"
-      2) "it"
-   3) 1) "tom"
-      2) "accounting"
+uhasql> select * from org;
+name   department
+-----  ----------
+Janet  IT
+Tom    Accounting
+Tom    Accounting
 ```
 
 This returns a single resultset, which is a series or rows, with the first row
@@ -81,26 +76,14 @@ either a single error or multiple resultsets.
 For example:
 
 ```
-> "insert into org values ('Andy', 'IT'); select last_insert_rowid();"
-1) 1) (empty array)
-2) 1) 1) "last_insert_rowid()"
-   2) 1) "3"
+uhasql> insert into org values ('Andy', 'IT'); select last_insert_rowid();
+last_insert_rowid()
+-------------------
+4
 ```
 
 This returned two resultsets. The first is the result to the `insert` statement.
 The second is the result to the `select` statement.
-
-You can optionally use the simple `begin` and `end` statements. They really
-don't add any nothing but additional clarity, and two extra return values.
-```
-
-> "begin; insert into org values ('Monique', 'Executive'); select last_insert_rowid(); end;"
-1) 1) (empty array)
-2) 1) (empty array)
-3) 1) 1) "last_insert_rowid()"
-   2) 1) "4"
-4) 1) (empty array)
-```
 
 ## Pitfalls
 

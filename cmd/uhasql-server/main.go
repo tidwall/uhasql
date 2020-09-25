@@ -36,7 +36,7 @@ var errTooMuchInput = errors.New("too much input")
 
 func main() {
 	var conf uhaha.Config
-	conf.Name = "uhasql"
+	conf.Name = "uhasql-server"
 	conf.Version = strings.Replace(buildVersion, "v", "", -1)
 	conf.GitSHA = buildGitSHA
 	conf.DataDirReady = func(dir string) {
@@ -49,8 +49,10 @@ func main() {
 	conf.Snapshot = snapshot
 	conf.Restore = restore
 
+	// Do not call $EXEC, $QUERY, or $ANY directly.
 	conf.AddWriteCommand("$EXEC", cmdEXEC)
 	conf.AddReadCommand("$QUERY", cmdQUERY)
+	conf.AddPassiveCommand("$ANY", cmdANY)
 	conf.AddCatchallCommand(cmdANY)
 	uhaha.Main(conf)
 }
@@ -64,6 +66,12 @@ func tick(m uhaha.Machine) {
 
 func cmdANY(m uhaha.Machine, args []string) (interface{}, error) {
 	// PASSIVE
+	if strings.ToLower(args[0]) == "$any" {
+		args = args[1:]
+		if len(args) == 0 {
+			return nil, uhaha.ErrWrongNumArgs
+		}
+	}
 	sql := strings.TrimSpace(strings.Join(args, " "))
 
 	readonly := true
@@ -315,6 +323,10 @@ func openSQLDatabase(path string, readonly bool) (*sqlDatabase, error) {
 		return nil, errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
 	}
 	if !readonly {
+		if err := db.exec("PRAGMA auto_vacuum=FULL", nil); err != nil {
+			db.close()
+			return nil, err
+		}
 		if err := db.exec("PRAGMA journal_mode=WAL", nil); err != nil {
 			db.close()
 			return nil, err

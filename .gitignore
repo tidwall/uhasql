@@ -1,5 +1,7 @@
 *.a
 *.o
-uhasql
-!uhasql/
+uhasql-server
+!uhasql-server/
+uhasql-cli
+!uhasql-cli/
 data/
