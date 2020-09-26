@@ -12,9 +12,11 @@ all: uhasql-server uhasql-cli
 uhasql-server: sqlite/libsqlite.a
 	cd cmd/uhasql-server && \
 	CGO_ENABLED=1 go build -ldflags " \
-	-X main.buildVersion=$(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0) \
-	-X main.buildGitSHA=$(shell git rev-parse --short HEAD 2>/dev/null || echo 0000000)" \
-	-o ../../uhasql-server main.go
+		-X main.buildVersion=$(shell \
+			git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0) \
+		-X main.buildGitSHA=$(shell \
+			git rev-parse --short HEAD 2>/dev/null || echo 0000000) \
+	" -o ../../uhasql-server main.go
 
 .PHONY: uhasql-cli
 uhasql-cli: 
