@@ -75,8 +75,6 @@ func cmdANY(m uhaha.Machine, args []string) (interface{}, error) {
 	sql := strings.TrimSpace(strings.Join(args, " "))
 
 	readonly := true
-	var txbegan bool
-	var txended bool
 	var err error
 	stmts := []string{}
 	sqlForEachStatement(sql, func(sql string) bool {
@@ -88,38 +86,8 @@ func cmdANY(m uhaha.Machine, args []string) (interface{}, error) {
 			readonly = false
 		case "explain", "select":
 			// readonly command
-		case "begin":
-			if len(sql) != len(cmd) {
-				err = errTooMuchInput
-				return false
-			}
-			if txbegan {
-				err = errors.New("nested transactions are not supported")
-				return false
-			}
-			if len(stmts) > 0 {
-				err = errors.New("\"begin\" must be the first statement")
-				return false
-			}
-			txbegan = true
-			return true
-		case "end":
-			if !txbegan {
-				err = errors.New("\"end\" missing \"begin\"")
-				return false
-			}
-			if len(sql) != len(cmd) {
-				err = errTooMuchInput
-				return false
-			}
-			txended = true
-			return true
 		default:
 			err = fmt.Errorf("near \"%s\": syntax error", cmd)
-			return false
-		}
-		if txended {
-			err = errors.New("\"end\" must be the last statement")
 			return false
 		}
 		stmts = append(stmts, sql)
@@ -128,20 +96,10 @@ func cmdANY(m uhaha.Machine, args []string) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if txbegan && !txended {
-		return nil, errors.New("\"begin\" without \"end\"")
-	}
 	if len(stmts) == 0 {
-		if txbegan {
-			return [][]string{[]string{}, []string{}}, nil
-		}
 		return []string{}, nil
 	}
-	vals := map[string]interface{}{
-		"tx":    txbegan,
-		"stmts": stmts,
-	}
-	data, _ := json.Marshal(vals)
+	data, _ := json.Marshal(stmts)
 	if readonly {
 		args = []string{"$QUERY", string(data)}
 	} else {
@@ -172,9 +130,8 @@ func cmdQUERY(m uhaha.Machine, args []string) (interface{}, error) {
 
 func exec(sqlJSON string, readonly bool) (interface{}, error) {
 	var sqls []string
-	tx := gjson.Get(sqlJSON, "tx").Bool()
 	var res []interface{}
-	gjson.Get(sqlJSON, "stmts").ForEach(func(_, val gjson.Result) bool {
+	gjson.Parse(sqlJSON).ForEach(func(_, val gjson.Result) bool {
 		sqls = append(sqls, val.String())
 		return true
 	})
@@ -186,7 +143,6 @@ func exec(sqlJSON string, readonly bool) (interface{}, error) {
 			return nil, err
 		}
 		defer releaseReaderDB(db)
-
 		dbmu.RLock()
 		C.uhaha_begin_reader()
 		defer func() {
@@ -198,14 +154,10 @@ func exec(sqlJSON string, readonly bool) (interface{}, error) {
 		defer dbmu.Unlock()
 		db = wdb
 	}
-
 	if len(sqls) > 1 {
 		if err := db.exec("begin", nil); err != nil {
 			return nil, err
 		}
-	}
-	if tx {
-		res = append(res, [][]string{[]string{}})
 	}
 	for _, sql := range sqls {
 		var rows [][]string
@@ -222,9 +174,6 @@ func exec(sqlJSON string, readonly bool) (interface{}, error) {
 			return nil, err
 		}
 		res = append(res, rows)
-	}
-	if tx {
-		res = append(res, [][]string{[]string{}})
 	}
 	if len(sqls) > 1 {
 		if err := db.exec("end", nil); err != nil {

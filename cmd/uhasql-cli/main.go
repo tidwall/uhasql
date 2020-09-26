@@ -140,9 +140,6 @@ func writeResultSet(v interface{}, last bool) {
 			nlines++
 		}
 	}
-	if nlines == 0 {
-		fmt.Printf("No results\n")
-	}
 	if !last {
 		fmt.Printf("\n")
 	}

@@ -40,21 +40,17 @@ $ ./uhasql-cli
 
 Most any Sqlite statements will work. All statements will return one or more
 resultsets, depending on the number of statements that you send to the server
-in a single request. Usually statements that update the database will not
-return data, so you will see something like "No results".
+in a single request.
 
 ```
 uhasql> create table org (name text, department text);
-No results
 ```
 
 Let's insert two records.
 
 ```
 uhasql> insert into org values ('Janet', 'IT');
-No results
 uhasql> insert into org values ('Tom', 'Accounting');
-No results
 ```
 
 Ok. Now let's get the do a `select` statement on the table.
@@ -71,10 +67,10 @@ Tom    Accounting
 This returns a single resultset, which is a series or rows, with the first row
 being the column name and the other rows being the values.
 
-## Transactions and multi-statement
+## Transactions / multi-statement request
 
 In UhaSQL a transaction is just a bunch of statements that are sent as one
-request, and each statement seperated by a semicolons. The return value is
+request with each statement seperated by a semicolon. The return value is
 either a single error or multiple resultsets.
 
 For example:
@@ -84,22 +80,6 @@ uhasql> insert into org values ('Andy', 'IT'); select last_insert_rowid();
 last_insert_rowid()
 -------------------
 4
-```
-
-This returned two resultsets. The first is the result to the `insert` statement.
-The second is the result to the `select` statement.
-
-You can optionally use the simple `begin` and `end` statements. They really
-don't add any nothing but additional clarity, and two extra return values.
-```
-
-uhasql> begin; insert into org values ('Monique', 'Executive'); select last_insert_rowid(); end;
-No results
-No results
-last_insert_rowid()
--------------------
-4
-No results
 ```
 
 ## Pitfalls
