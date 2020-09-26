@@ -1,0 +1,29 @@
+FROM ubuntu:groovy
+
+RUN apt-get update -y \
+    && apt-get upgrade -y \
+    && apt-get install -y build-essential wget git \
+    && wget -q https://golang.org/dl/go1.15.2.linux-amd64.tar.gz \
+    && tar -C /usr/local -xzf go1.15.2.linux-amd64.tar.gz \
+    && ln -s /usr/local/go/bin/go /usr/local/bin/go \
+    && mkdir -p /repo/sqlite
+
+ADD cmd/ /repo/cmd/
+ADD sqlite/sqlite.c /repo/sqlite/sqlite.c
+ADD sqlite/sqlite.h /repo/sqlite/sqlite.h
+ADD go.mod /repo/go.mod
+ADD go.sum /repo/go.sum
+ADD Makefile /repo/Makefile
+ADD scripts/ /repo/scripts/
+
+ARG version
+ARG gitsha
+
+RUN cd /repo \
+    && UHASQL_BUILD_VERSION=${version} \
+       UHASQL_BUILD_GITSHA=${gitsha} \
+       make \
+    && mv /repo/uhasql-server / \
+    && mv /repo/uhasql-cli / \
+    && rm -rf go1.15.2.linux-amd64.tar.gz /repo
+
