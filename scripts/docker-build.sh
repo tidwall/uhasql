@@ -10,6 +10,5 @@ export DOCKER_APP=tidwall/uhasql
 docker build \
     --build-arg version=$GITVERS \
     --build-arg gitsha=$GITSHA \
-    -t $DOCKER_APP:$GITVERS \
+    -t $DOCKER_APP:$GITSHA \
     -f scripts/Dockerfile .
-
