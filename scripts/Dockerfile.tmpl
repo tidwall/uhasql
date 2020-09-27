@@ -16,14 +16,10 @@ ADD go.sum /repo/go.sum
 ADD Makefile /repo/Makefile
 ADD scripts/ /repo/scripts/
 
-ARG version
-ARG gitsha
-
 RUN cd /repo \
-    && UHASQL_BUILD_VERSION=${version} \
-       UHASQL_BUILD_GITSHA=${gitsha} \
-       make \
+    && GITVERS={{GITVERS}} GITSHA={{GITSHA}} make \
     && mv /repo/uhasql-server / \
     && mv /repo/uhasql-cli / \
-    && rm -rf go1.15.2.linux-amd64.tar.gz /repo
+    && rm -rf go1.15.2.linux-amd64.tar.gz /repo \
+    && /uhasql-server -v
 

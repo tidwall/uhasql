@@ -5,10 +5,9 @@ cd $(dirname "${BASH_SOURCE[0]}")/..
 
 . scripts/env.sh
 
-export DOCKER_APP=tidwall/uhasql
+cat scripts/Dockerfile.tmpl \
+    | sed "s/{{GITVERS}}/${GITVERS}/" \
+    | sed "s/{{GITSHA}}/${GITSHA}/" \
+    > scripts/Dockerfile.out
 
-docker build \
-    --build-arg version=$GITVERS \
-    --build-arg gitsha=$GITSHA \
-    -t $DOCKER_APP:$GITSHA \
-    -f scripts/Dockerfile .
+docker build -t tidwall/uhasql:${GITSHA} -f scripts/Dockerfile.out .
