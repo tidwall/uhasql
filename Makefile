@@ -21,6 +21,3 @@ uhasql-cli:
 
 clean:
 	rm -f sqlite/*.o sqlite/*.a uhasql uhasql-server
-
-docker-build:
-	scripts/docker-build.sh
