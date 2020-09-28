@@ -4,25 +4,30 @@ FROM ubuntu:groovy AS build
 
 RUN apt-get update -y \
     && apt-get upgrade -y \
-    && apt-get install -y build-essential wget git \
+    && apt-get install -y build-essential wget git musl-tools \
     && wget -q https://golang.org/dl/go1.15.2.linux-amd64.tar.gz \
     && tar -C /usr/local -xzf go1.15.2.linux-amd64.tar.gz \
     && ln -s /usr/local/go/bin/go /usr/local/bin/go \
     && mkdir -p /repo/sqlite
 
-ADD cmd/ /repo/cmd/
+# build the sqlite library
+ADD Makefile /repo/Makefile
 ADD sqlite/sqlite.c /repo/sqlite/sqlite.c
 ADD sqlite/sqlite.h /repo/sqlite/sqlite.h
-ADD go.mod /repo/go.mod
-ADD go.sum /repo/go.sum
-ADD Makefile /repo/Makefile
+RUN cd /repo && CC=musl-gcc make sqlite/libsqlite.a
+
 ADD scripts/env.sh /repo/scripts/env.sh
 ADD scripts/build.sh /repo/scripts/build.sh
+ADD cmd/ /repo/cmd/
+ADD go.mod /repo/go.mod
+ADD go.sum /repo/go.sum
 
+# prebuild the app
+RUN cd /repo && CC=musl-gcc make
+
+# build the app
 ARG GITVERS
 ARG GITSHA
-
-RUN apt-get install -y musl-tools
 
 RUN cd /repo && GITVERS=$GITVERS GITSHA=$GITSHA CC=musl-gcc make
 
