@@ -14,6 +14,8 @@ github.com/dgryski/go-pcgr v0.0.0-20190219145045-9a7ede0ca611/go.mod h1:ztV/u9hq
 github.com/fatih/color v1.7.0 h1:DkWD4oS2D8LGGgTQ6IvwJJXSL5Vp2ffcQg58nFV38Ys=
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
+github.com/garyburd/redigo v1.6.2 h1:yE/pwKCrbLpLpQICzYTeZ7JsTA/C53wFTJHaEtRqniM=
+github.com/garyburd/redigo v1.6.2/go.mod h1:NR3MbYisc3/PwhQ00EMzDiPmrwpPxAn5GI05/YaO1SY=
 github.com/golang/protobuf v1.2.0/go.mod h1:6lQm79b+lXiMfvg/cZm0SGofjICqVBUtrP5yJMmIC1U=
 github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db/go.mod h1:/XxbfmMg8lxefKM7IXC3fBNl/7bRcc72aCRzEWrmP2Q=
 github.com/golang/snappy v0.0.1 h1:Qgr9rKW7uDUkrbSmQeiDsGa8SjGyCOGtuasMWwvp2P4=
@@ -97,6 +99,8 @@ github.com/tidwall/uhaha v0.3.0 h1:uor6A71Ykf5gAokOoAgUPjvfGqOGisNocGri/bHcx+k=
 github.com/tidwall/uhaha v0.3.0/go.mod h1:ccHoTIgW7wcKXo3v/AGhnkHirNS3LtoWeYMY6ODq258=
 github.com/tidwall/uhaha v0.4.0 h1:3PYoUkMClavwoVyz+1YGj4oDqpCRPxDvoDVreGTG3lM=
 github.com/tidwall/uhaha v0.4.0/go.mod h1:ccHoTIgW7wcKXo3v/AGhnkHirNS3LtoWeYMY6ODq258=
+github.com/tidwall/uhaha v0.4.1 h1:ueqCqPSq91+qCz0SibprW9VSObC3Az1urVZbkfF3Xfc=
+github.com/tidwall/uhaha v0.4.1/go.mod h1:ccHoTIgW7wcKXo3v/AGhnkHirNS3LtoWeYMY6ODq258=
 github.com/tidwall/uhatools v0.1.1 h1:/1SRf5ZyhC83EIlsjqbfBUPikIk2V4hmwOKQ5Sk2APA=
 github.com/tidwall/uhatools v0.1.1/go.mod h1:gtw9IzLdG0pdP+22TP3SvL4s8tp2tbYPsySew8LkfWM=
 github.com/tidwall/uhatools v0.2.0 h1:/lNqRt7BpoLLmuK2M8J6kUng0FgVzHmx6RrLfjolb2s=

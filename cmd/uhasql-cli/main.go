@@ -218,10 +218,18 @@ func doSysCommand(conn *uhatools.Conn, cmd string) (exit bool) {
 	}
 	switch strings.ToLower(args[0]) {
 	case ".help":
-		fmt.Printf(".help                        Show this screen\n")
 		fmt.Printf(".exit                        Exit the process\n")
+		fmt.Printf(".help                        Show this screen\n")
+		fmt.Printf(".version                     Show the UhaSQL version\n")
 	case ".exit":
 		return true
+	case ".version":
+		vers, err := uhatools.String(conn.Do("version"))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", cleanErr(err))
+		} else {
+			fmt.Printf("%s\n", vers)
+		}
 	default:
 		fmt.Fprintf(os.Stderr,
 			"Error: unknown command or invalid arguments:  "+
