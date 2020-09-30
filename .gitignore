@@ -1,5 +1,6 @@
 *.a
 *.o
+*.pem
 uhasql-server
 !uhasql-server/
 uhasql-cli

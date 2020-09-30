@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,13 +19,59 @@ func main() {
 	var host string
 	var port int
 	var auth string
+	var cacert string
+	var tlsinsecure bool
 	flag.StringVar(&host, "h", "127.0.0.1", "host")
 	flag.IntVar(&port, "p", 11001, "port")
 	flag.StringVar(&auth, "a", "", "auth")
+	flag.BoolVar(&tlsinsecure, "tlsinsecure", false,
+		"Use insecure TLS connection")
+	flag.StringVar(&cacert, "cacert", "", "")
 	flag.Parse()
+	var tlscfg *tls.Config
+	if tlsinsecure {
+		tlscfg = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	} else if cacert != "" {
+		var serverName string
+		tlscfg = &tls.Config{
+			InsecureSkipVerify: true,
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				if len(cs.PeerCertificates) > 0 {
+					if len(cs.PeerCertificates[0].DNSNames) > 0 {
+						serverName = cs.PeerCertificates[0].DNSNames[0]
+						return nil
+					}
+				}
+				return errors.New(
+					"tls: cannot verify because no IP SANs could be determined")
+			},
+		}
+		conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", host, port), tlscfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+			return
+		}
+		conn.Close()
+
+		data, err := ioutil.ReadFile(cacert)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+			return
+		}
+		pool := x509.NewCertPool()
+		pool.AppendCertsFromPEM(data)
+		tlscfg = &tls.Config{
+			ServerName: serverName,
+			RootCAs:    pool,
+		}
+	}
+
 	conn, err := uhatools.Dial(fmt.Sprintf("%s:%d", host, port),
 		&uhatools.DialOptions{
-			Auth: auth,
+			Auth:      auth,
+			TLSConfig: tlscfg,
 		})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
