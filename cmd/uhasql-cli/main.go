@@ -126,7 +126,9 @@ func main() {
 		str = strings.TrimSpace(str)
 		if sql == "" && strings.HasPrefix(str, ".") {
 			// do sys command
-			doSysCommand(conn, str)
+			if doSysCommand(conn, str) {
+				return
+			}
 		} else {
 			// do sql command
 			sql = strings.TrimSpace(sql + "\n" + str)
@@ -205,7 +207,7 @@ func cleanErr(err error) error {
 	return err
 }
 
-func doSysCommand(conn *uhatools.Conn, cmd string) {
+func doSysCommand(conn *uhatools.Conn, cmd string) (exit bool) {
 	args := strings.Split(cmd, " ")
 	for i := 0; i < len(args); i++ {
 		if args[i] == "" {
@@ -217,9 +219,13 @@ func doSysCommand(conn *uhatools.Conn, cmd string) {
 	switch strings.ToLower(args[0]) {
 	case ".help":
 		fmt.Printf(".help                        Show this screen\n")
+		fmt.Printf(".exit                        Exit the process\n")
+	case ".exit":
+		return true
 	default:
 		fmt.Fprintf(os.Stderr,
 			"Error: unknown command or invalid arguments:  "+
 				"\"%s\". Enter \".help\" for help\n", args[0][1:])
 	}
+	return false
 }
