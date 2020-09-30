@@ -2,6 +2,8 @@
 
 A high available Sqlite service running on [Uhaha](https://github.com/tidwall/uhaha).
 
+This README focuses on the features distinct to UhaSQL. There are a bunch of other features that are inherited from the Uhaha such as a Raft cluster, TLS, Auth passwords, Backups, Snapshots, etc. Please see the [Uhaha README](https://github.com/tidwall/uhaha) for more detailed information on these advanced features.
+
 ## Features
 
 - High availablity using the Raft Consensus Algorithm
@@ -9,6 +11,7 @@ A high available Sqlite service running on [Uhaha](https://github.com/tidwall/uh
 - Persists to disk
 - Deterministic TIME() and RANDOM() SQL functions
 - Uses the Redis protocol, thus any redis client will work with UhaSQL
+- Security features like TLS and Auth passwords
 
 ## Building
 
@@ -20,7 +23,7 @@ make
 
 ## Running
 
-To start a single node instance. For a full Raft cluster see the [Uhaha README](https://github.com/tidwall/uhaha).
+To start a single node instance. 
 
 ```
 $ ./uhasql-server
