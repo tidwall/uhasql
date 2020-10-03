@@ -7,5 +7,5 @@ require (
 	github.com/peterh/liner v1.2.0
 	github.com/tidwall/gjson v1.6.1
 	github.com/tidwall/uhaha v0.4.4
-	github.com/tidwall/uhatools v0.2.1
+	github.com/tidwall/uhatools v0.2.3
 )
