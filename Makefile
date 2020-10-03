@@ -23,4 +23,10 @@ clean:
 	rm -f sqlite/*.o sqlite/*.a uhasql uhasql-server
 
 docker:
-	scripts/docker-build.sh
+	scripts/docker.sh
+
+docker-edge:
+	scripts/docker.sh --edge
+
+docker-release:
+	scripts/docker.sh --release
