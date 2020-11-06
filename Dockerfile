@@ -19,8 +19,6 @@ RUN cd /repo && CC=musl-gcc make sqlite/libsqlite.a
 ADD scripts/env.sh /repo/scripts/env.sh
 ADD scripts/build.sh /repo/scripts/build.sh
 ADD cmd/ /repo/cmd/
-ADD go.mod /repo/go.mod
-ADD go.sum /repo/go.sum
 
 # prebuild the app
 RUN cd /repo && CC=musl-gcc make
