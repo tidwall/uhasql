@@ -12,5 +12,6 @@ if [[ "$1" == "uhasql-server" ]]; then
         -X main.buildGitSHA=$GITSHA \
     " -o ../../uhasql-server main.go
 elif [[ "$1" == "uhasql-cli" ]]; then
-    go build -o uhasql-cli cmd/uhasql-cli/main.go
+    cd cmd/uhasql-cli
+    go build -o ../../uhasql-cli main.go
 fi
