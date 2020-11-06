@@ -52,7 +52,7 @@ func main() {
 	// Do not call $EXEC, $QUERY, or $ANY directly.
 	conf.AddWriteCommand("$EXEC", cmdEXEC)
 	conf.AddReadCommand("$QUERY", cmdQUERY)
-	conf.AddPassiveCommand("$ANY", cmdANY)
+	conf.AddIntermediateCommand("$ANY", cmdANY)
 	conf.AddCatchallCommand(cmdANY)
 	uhaha.Main(conf)
 }

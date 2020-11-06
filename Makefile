@@ -20,7 +20,7 @@ uhasql-cli:
 	scripts/build.sh uhasql-cli
 
 clean:
-	rm -f sqlite/*.o sqlite/*.a uhasql uhasql-server
+	rm -f sqlite/*.o sqlite/*.a uhasql-server uhasql-cli
 
 docker:
 	scripts/docker.sh
