@@ -1,0 +1,89 @@
+# github.com/armon/go-metrics v0.0.0-20190430140413-ec5e00d3c878
+github.com/armon/go-metrics
+# github.com/boltdb/bolt v1.3.1
+github.com/boltdb/bolt
+# github.com/fatih/color v1.7.0
+github.com/fatih/color
+# github.com/golang/snappy v0.0.2
+github.com/golang/snappy
+# github.com/gomodule/redigo v1.8.2
+github.com/gomodule/redigo/redis
+# github.com/hashicorp/go-hclog v0.15.0
+github.com/hashicorp/go-hclog
+# github.com/hashicorp/go-immutable-radix v1.0.0
+github.com/hashicorp/go-immutable-radix
+# github.com/hashicorp/go-msgpack v0.5.5
+github.com/hashicorp/go-msgpack/codec
+# github.com/hashicorp/golang-lru v0.5.0
+github.com/hashicorp/golang-lru/simplelru
+# github.com/hashicorp/raft v1.2.0
+github.com/hashicorp/raft
+# github.com/hashicorp/raft-boltdb v0.0.0-20191021154308-4207f1bf0617
+github.com/hashicorp/raft-boltdb
+# github.com/mattn/go-colorable v0.1.4
+github.com/mattn/go-colorable
+# github.com/mattn/go-isatty v0.0.10
+github.com/mattn/go-isatty
+# github.com/mattn/go-runewidth v0.0.3
+github.com/mattn/go-runewidth
+# github.com/peterh/liner v1.2.0
+## explicit
+github.com/peterh/liner
+# github.com/robertkrimen/otto v0.0.0-20200922221731-ef014fd054ac
+## explicit
+github.com/robertkrimen/otto
+github.com/robertkrimen/otto/ast
+github.com/robertkrimen/otto/dbg
+github.com/robertkrimen/otto/file
+github.com/robertkrimen/otto/parser
+github.com/robertkrimen/otto/registry
+github.com/robertkrimen/otto/token
+# github.com/syndtr/goleveldb v1.0.0
+github.com/syndtr/goleveldb/leveldb
+github.com/syndtr/goleveldb/leveldb/cache
+github.com/syndtr/goleveldb/leveldb/comparer
+github.com/syndtr/goleveldb/leveldb/errors
+github.com/syndtr/goleveldb/leveldb/filter
+github.com/syndtr/goleveldb/leveldb/iterator
+github.com/syndtr/goleveldb/leveldb/journal
+github.com/syndtr/goleveldb/leveldb/memdb
+github.com/syndtr/goleveldb/leveldb/opt
+github.com/syndtr/goleveldb/leveldb/storage
+github.com/syndtr/goleveldb/leveldb/table
+github.com/syndtr/goleveldb/leveldb/util
+# github.com/tidwall/btree v0.2.2
+github.com/tidwall/btree
+# github.com/tidwall/gjson v1.6.3
+## explicit
+github.com/tidwall/gjson
+# github.com/tidwall/match v1.0.2
+github.com/tidwall/match
+# github.com/tidwall/pretty v1.0.2
+github.com/tidwall/pretty
+# github.com/tidwall/raft-leveldb v0.1.0
+github.com/tidwall/raft-leveldb
+# github.com/tidwall/redcon v1.4.0
+## explicit
+github.com/tidwall/redcon
+# github.com/tidwall/redlog/v2 v2.0.3
+github.com/tidwall/redlog/v2
+# github.com/tidwall/rtime v0.1.2
+github.com/tidwall/rtime
+# github.com/tidwall/uhaha v0.6.1
+## explicit
+github.com/tidwall/uhaha
+# github.com/tidwall/uhatools v0.4.1
+## explicit
+github.com/tidwall/uhatools
+# golang.org/x/crypto v0.0.0-20201116153603-4be66e5b6582
+golang.org/x/crypto/ssh/terminal
+# golang.org/x/sys v0.0.0-20191026070338-33540a1f6037
+golang.org/x/sys/plan9
+golang.org/x/sys/unix
+golang.org/x/sys/windows
+# golang.org/x/term v0.0.0-20201113234701-d7a72108b828
+golang.org/x/term
+# gopkg.in/sourcemap.v1 v1.0.5
+## explicit
+gopkg.in/sourcemap.v1
+gopkg.in/sourcemap.v1/base64vlq

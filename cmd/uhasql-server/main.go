@@ -11,7 +11,10 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/robertkrimen/otto"
+
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/redcon"
 	"github.com/tidwall/uhaha"
 )
 
@@ -53,6 +56,7 @@ func main() {
 	conf.AddWriteCommand("$EXEC", cmdEXEC)
 	conf.AddReadCommand("$QUERY", cmdQUERY)
 	conf.AddIntermediateCommand("$ANY", cmdANY)
+	conf.AddWriteCommand("PROC", cmdPROC)
 	conf.AddCatchallCommand(cmdANY)
 	uhaha.Main(conf)
 }
@@ -120,15 +124,15 @@ func cmdEXEC(m uhaha.Machine, args []string) (interface{}, error) {
 		info.Seed = int64(C.uhaha_seed)
 		uhaha.WriteRawMachineInfo(m, &info)
 	}()
-	return exec(args[1], false)
+	return sqlExec(args[1], false)
 }
 
 func cmdQUERY(m uhaha.Machine, args []string) (interface{}, error) {
 	// READ
-	return exec(args[1], true)
+	return sqlExec(args[1], true)
 }
 
-func exec(sqlJSON string, readonly bool) (interface{}, error) {
+func sqlExec(sqlJSON string, readonly bool) (interface{}, error) {
 	var sqls []string
 	var res []interface{}
 	gjson.Parse(sqlJSON).ForEach(func(_, val gjson.Result) bool {
@@ -284,6 +288,10 @@ func openSQLDatabase(path string, readonly bool) (*sqlDatabase, error) {
 			db.close()
 			return nil, err
 		}
+		if err := db.ensureProcSpace(); err != nil {
+			db.close()
+			return nil, err
+		}
 	}
 	return db, nil
 }
@@ -355,6 +363,16 @@ func (db *sqlDatabase) autocheckpoint(n int) error {
 		return errors.New(C.GoString(C.sqlite3_errmsg(db.db)))
 	}
 	return nil
+}
+
+func (db *sqlDatabase) ensureProcSpace() error {
+	err := db.exec(`
+		CREATE TABLE IF NOT EXISTS __proc__ (
+			name       TEXT PRIMARY KEY,
+			script     TEXT
+		);
+	`, nil)
+	return err
 }
 
 const rdbMaxPool = 50
@@ -477,4 +495,236 @@ func sqlCommand(sql string) string {
 		}
 	}
 	return strings.ToLower(sql)
+}
+
+// PROC EXEC name args       -- executes a proc
+// PROC SET name script      -- sets a proc
+// PROC GET name             -- gets a proc
+// PROC DEL name             -- deletes a proc
+// PROC LIST                 -- returns the names of all procs
+func cmdPROC(m uhaha.Machine, args []string) (interface{}, error) {
+	if len(args) < 2 {
+		return nil, errors.New("wrong number of arguments, try PROC HELP")
+	}
+	switch strings.ToLower(args[1]) {
+	case "exec":
+		return cmdPROCEXEC(m, args)
+	case "set":
+		return cmdPROCSET(m, args)
+	case "get":
+		return cmdPROCGET(m, args)
+	case "del", "delete":
+		return cmdPROCDEL(m, args)
+	case "help":
+		return cmdPROCHELP(m, args)
+	case "list":
+		return cmdPROCLIST(m, args)
+	default:
+		return nil, fmt.Errorf("unknown proc command '%s %s', try PROC HELP",
+			args[0], args[1],
+		)
+	}
+}
+
+func cmdPROCEXEC(m uhaha.Machine, args []string) (interface{}, error) {
+	if len(args) < 3 {
+		return nil, errors.New("wrong number of arguments, try PROC HELP")
+	}
+	name := args[2]
+	var vargs []string
+	var script string
+	if name == "__inline__" {
+		if len(args) < 4 {
+			return nil, errors.New("wrong number of arguments, try PROC HELP")
+		}
+		script = args[3]
+		vargs = args[4:]
+	} else {
+		vargs = args[3:]
+	}
+	_ = vargs
+
+	dbmu.Lock()
+	defer dbmu.Unlock()
+	var commit bool
+	if err := wdb.exec("begin", nil); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if commit {
+			wdb.exec("end", nil)
+		} else {
+			wdb.exec("rollback", nil)
+		}
+	}()
+
+	if name != "__inline__" {
+		var count int
+		err := wdb.exec(`select script from __proc__
+	                 where name = '`+strings.Replace(name, "'", "''", -1)+`'`,
+			func(rows []string) bool {
+				if count == 1 {
+					script = rows[0]
+				}
+				count++
+				return true
+			})
+		if err != nil {
+			return nil, err
+		}
+		if count != 2 {
+			return nil, errors.New("proc not found")
+		}
+	}
+	var result otto.Value
+	err := func() (err error) {
+		defer func() {
+			if err == nil {
+				if v := recover(); v != nil {
+					err = fmt.Errorf("%v", v)
+				}
+			}
+			if err != nil {
+				if strings.Contains(err.Error(), "(anonymous):") {
+					err = errors.New(strings.Replace(err.Error(),
+						"(anonymous):", "proc.js:", 1))
+				}
+			}
+		}()
+		vm := otto.New()
+		vm.Set("exec", execFn)
+		data, _ := json.Marshal(vargs)
+		vm.Eval("this.arguments = " + string(data))
+		result, err = vm.Run(script)
+		return err
+	}()
+	if err != nil {
+		return nil, err
+	}
+	val, err := result.Export()
+	if err != nil {
+		return nil, err
+	}
+	commit = true
+	return val, nil
+}
+
+func execFn(call otto.FunctionCall) otto.Value {
+	if !call.Argument(0).IsDefined() {
+		panic("exec: statement not provided")
+	}
+	if !call.Argument(0).IsString() {
+		panic("exec: statement not a string")
+	}
+	var rows [][]string
+	err := wdb.exec(call.Argument(0).String(), func(row []string) bool {
+		rows = append(rows, row)
+		return true
+	})
+	if err != nil {
+		panic("exec: " + err.Error())
+	}
+	val, err := call.Otto.ToValue(rows)
+	if err != nil {
+		panic("exec: " + err.Error())
+	}
+	return val
+}
+
+func cmdPROCSET(m uhaha.Machine, args []string) (interface{}, error) {
+	if len(args) != 4 {
+		return nil, errors.New("wrong number of arguments, try PROC HELP")
+	}
+	name := strings.Replace(args[2], "'", "''", -1)
+	script := strings.Replace(args[3], "'", "''", -1)
+
+	vm := otto.New()
+	_, err := vm.Compile("proc.js", script)
+	if err != nil {
+		return nil, err
+	}
+
+	dbmu.Lock()
+	defer dbmu.Unlock()
+
+	err = wdb.exec(`INSERT INTO __proc__ (name, script)
+					VALUES ('`+name+`', '`+script+`')
+					ON CONFLICT(name)
+					DO UPDATE SET script=excluded.script;`, nil)
+	if err != nil {
+		return nil, err
+	}
+	return redcon.SimpleString("OK"), nil
+}
+
+func cmdPROCGET(m uhaha.Machine, args []string) (interface{}, error) {
+	if len(args) != 3 {
+		return nil, errors.New("wrong number of arguments, try PROC HELP")
+	}
+	dbmu.Lock()
+	defer dbmu.Unlock()
+	name := strings.Replace(args[2], "'", "''", -1)
+	var count int
+	var script string
+	err := wdb.exec(`select script from __proc__ where name = '`+name+`'`,
+		func(rows []string) bool {
+			if count == 1 {
+				script = rows[0]
+			}
+			count++
+			return true
+		})
+	if err != nil {
+		return nil, err
+	}
+	if count != 2 {
+		return nil, nil
+	}
+	return script, nil
+}
+
+func cmdPROCDEL(m uhaha.Machine, args []string) (interface{}, error) {
+	if len(args) != 3 {
+		return nil, errors.New("wrong number of arguments, try PROC HELP")
+	}
+	dbmu.Lock()
+	defer dbmu.Unlock()
+	name := strings.Replace(args[2], "'", "''", -1)
+	err := wdb.exec(`delete from __proc__ where name = '`+name+`'`, nil)
+	if err != nil {
+		return nil, err
+	}
+	return redcon.SimpleString("OK"), nil
+}
+
+func cmdPROCLIST(m uhaha.Machine, args []string) (interface{}, error) {
+	if len(args) != 2 {
+		return nil, errors.New("wrong number of arguments, try PROC HELP")
+	}
+	dbmu.Lock()
+	defer dbmu.Unlock()
+	db := wdb
+	var list []string
+	err := db.exec("select name from __proc__ order by name",
+		func(row []string) bool {
+			list = append(list, row[0])
+			return true
+		})
+	if err != nil {
+		return nil, err
+	}
+	return list[1:], nil
+}
+
+func cmdPROCHELP(m uhaha.Machine, args []string) (interface{}, error) {
+	if len(args) != 2 {
+		return nil, errors.New("wrong number of arguments, try PROC HELP")
+	}
+	return []string{
+		"PROC EXEC name [arg ...]",
+		"PROC SET name script",
+		"PROC GET name",
+		"PROC DEL name",
+		"PROC LIST",
+	}, nil
 }
