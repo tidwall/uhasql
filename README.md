@@ -110,17 +110,17 @@ To run the procedure:
 PROC EXEC name [arg ...]
 ```
 
-The `uhasql-cli` requires the special ````` three backticks for setting a
+The `uhasql-cli` requires the special ```` three backticks for setting a
 multiline procedure. For example:
 
 ```
-uhasql> proc set new_person_if_empty \`\`\`
+uhasql> proc set new_person_if_empty ```
    ...> var res = exec("select count(*) from org");
    ...> var count = parseInt(res[1][0]);
    ...> if (count == 0) {
    ...>   exec("insert into org (name) values ('Stevie Nicks')");
    ...> }
-   ...> \`\`\`
+   ...> ```
 uhasql>
 ```
 
