@@ -110,7 +110,7 @@ To run the procedure:
 PROC EXEC name [arg ...]
 ```
 
-The `uhasql-cli` requires the special ```` three backticks for setting a
+The `uhasql-cli` requires the special ``` three backticks for setting a
 multiline procedure. For example:
 
 ```
