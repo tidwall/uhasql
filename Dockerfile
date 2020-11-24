@@ -1,4 +1,6 @@
+################################################################################
 # build stage
+################################################################################
 # Build using Ubuntu/Musl/Go
 FROM ubuntu:groovy AS build
 
@@ -19,6 +21,9 @@ RUN cd /repo && CC=musl-gcc make sqlite/libsqlite.a
 ADD scripts/env.sh /repo/scripts/env.sh
 ADD scripts/build.sh /repo/scripts/build.sh
 ADD cmd/ /repo/cmd/
+ADD vendor/ /repo/vendor/
+ADD go.mod /repo/go.mod
+ADD go.sum /repo/go.sum
 
 # prebuild the app
 RUN cd /repo && CC=musl-gcc make
@@ -29,7 +34,11 @@ ARG GITSHA
 
 RUN cd /repo && GITVERS=$GITVERS GITSHA=$GITSHA CC=musl-gcc make
 
+
+
+################################################################################
 # run stage
+################################################################################
 # Run using Alpine
 FROM alpine:3.12.0 AS run
 
