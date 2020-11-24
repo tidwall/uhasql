@@ -102,7 +102,7 @@ To create a new procedure:
 
 ```
 PROC SET name script
-``
+```
 
 To run the procedure:
 
@@ -113,7 +113,7 @@ PROC EXEC name [arg ...]
 The `uhasql-cli` requires the special `\`\`\`` three backticks for setting a
 multiline procedure. For example:
 
-```js
+```
 uhasql> proc set new_person_if_empty \`\`\`
    ...> var res = exec("select count(*) from org");
    ...> var count = parseInt(res[1][0]);
