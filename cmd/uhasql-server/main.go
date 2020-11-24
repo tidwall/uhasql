@@ -635,14 +635,15 @@ func cmdPROCSET(m uhaha.Machine, args []string) (interface{}, error) {
 	if len(args) != 4 {
 		return nil, errors.New("wrong number of arguments, try PROC HELP")
 	}
-	name := strings.Replace(args[2], "'", "''", -1)
-	script := strings.Replace(args[3], "'", "''", -1)
 
 	vm := otto.New()
-	_, err := vm.Compile("proc.js", script)
+	_, err := vm.Compile("proc.js", args[3])
 	if err != nil {
 		return nil, err
 	}
+
+	name := strings.Replace(args[2], "'", "''", -1)
+	script := strings.Replace(args[3], "'", "''", -1)
 
 	dbmu.Lock()
 	defer dbmu.Unlock()

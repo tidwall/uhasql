@@ -1,4 +1,4 @@
-# UhaSQL
+# uhasql
 
 A high available Sqlite service running on [Uhaha](https://github.com/tidwall/uhaha).
 
@@ -9,6 +9,7 @@ This README focuses on the features distinct to UhaSQL. There are a bunch of oth
 - High availablity using the Raft Consensus Algorithm
 - Small memory footprint
 - Persists to disk
+- Stored procedure scripts
 - Deterministic TIME() and RANDOM() SQL functions
 - Uses the Redis protocol, thus any redis client will work with UhaSQL
 - Security features like TLS and Auth passwords
@@ -84,6 +85,64 @@ last_insert_rowid()
 -------------------
 4
 ```
+
+## Store procedure scripts
+
+Sqlite does not have support for traditional stored procedures, but uhasql
+added the ability to create specialized stored procedure scripts. These procs
+are written in Javascript (ecma 5), always run in "write" mode, and
+automatically rollback on exceptions.
+
+A proc script uses standard javascript (ecma 5) with the addition of one new
+function: `exec(sqlStmt)`, which returns the resultset for the provided 
+sql statment. If the `exec` call results in an error then an exception is 
+thrown and the script rollsback.
+
+To create a new procedure:
+
+```
+PROC SET name script
+``
+
+To run the procedure:
+
+```
+PROC EXEC name [arg ...]
+```
+
+The `uhasql-cli` requires the special `\`\`\`` three backticks for setting a
+multiline procedure. For example:
+
+```js
+uhasql> proc set new_person_if_empty \`\`\`
+   ...> var res = exec("select count(*) from org");
+   ...> var count = parseInt(res[1][0]);
+   ...> if (count == 0) {
+   ...>   exec("insert into org (name) values ('Stevie Nicks')");
+   ...> }
+   ...> \`\`\`
+uhasql>
+```
+
+Which creates the stored proc:
+
+```js
+var res = exec("select count(*) from org");
+var count = parseInt(res[1][0]);
+if (count == 0) {
+  exec("insert into org (name) values ('Stevie Nicks')");
+}
+```
+
+The other `PROC` operations are:
+
+```
+PROC GET name
+PROC DEL name
+PROC LIST
+```
+
+
 
 ## Pitfalls
 
